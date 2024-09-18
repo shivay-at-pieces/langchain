@@ -1,15 +1,11 @@
-# Accomplish the following: 
-# Implement method to pass model name from the list of supported models 
-# Implement a method to stream the response from Pieces OS
-
 from __future__ import annotations
-
-from typing import Any, List, Mapping, Optional
-
+from typing import Any, List, Mapping, Optional, Iterator
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.llms import BaseLLM
 from langchain_core.outputs import GenerationChunk, LLMResult
-from pieces_copilot_sdk import PiecesClient
+from pieces_os_client.wrapper import PiecesClient
+from pieces_os_client.models import ModelFoundationEnum
+
 
 class PiecesOSLLM(BaseLLM):
     """Pieces OS language model."""
@@ -24,9 +20,7 @@ class PiecesOSLLM(BaseLLM):
     @property
     def _identifying_params(self) -> Mapping[str, Any]:
         """Get the identifying parameters."""
-        return {
-            "model": self.model,
-        }
+        return {"model": self.model}
 
     def _call(
         self,
@@ -37,10 +31,8 @@ class PiecesOSLLM(BaseLLM):
     ) -> str:
         """Call the Pieces OS model."""
         try:
-            response = self.client.ask_question(
-                question=prompt,
-            )
-            return response
+            response = self.client.copilot.ask_question(prompt)
+            return response.question.answers[0].text if response.question and response.question.answers else ""
         except Exception as error:
             print(f'Error asking question: {error}')
             return 'Error asking question'
@@ -58,3 +50,31 @@ class PiecesOSLLM(BaseLLM):
             text = self._call(prompt, stop=stop, run_manager=run_manager, **kwargs)
             generations.append([GenerationChunk(text=text)])
         return LLMResult(generations=generations)
+
+    def stream(
+        self,
+        prompt: str,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> Iterator[GenerationChunk]:
+        """Stream the response from Pieces OS model."""
+        try:
+            for response in self.client.copilot.stream_question(prompt):
+                if response.question:
+                    answers = response.question.answers.iterable
+                    for answer in answers:
+                        yield GenerationChunk(text=answer.text)
+        except Exception as error:
+            print(f'Error streaming question: {error}')
+            yield GenerationChunk(text='Error streaming question')
+
+    def get_supported_models(self) -> List[str]:
+        """Get the list of supported models."""
+        return self.client.available_models_names
+
+    def set_model(self, model_name: str) -> None:
+        """Set the model to be used."""
+        self.model = model_name
+        self.client.model_name = model_name
+        print(f"Model set to {model_name}.")
